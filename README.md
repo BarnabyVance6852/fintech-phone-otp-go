@@ -1,6 +1,6 @@
 # Phone OTP login with an audit trail
 
-We built this Go service to model a fintech login cutover away from Twilio Verify or Firebase. It exposes two local endpoints: send a code, then verify it against a captcha token. You reach Infrai with one key and a plain REST call from any language with no SDK required. The same envelope handling applies to every call, which keeps our client code boring and predictable.
+This Go service models a fintech login cutover from Twilio Verify or Firebase. It exposes two local requests: send a code, then verify it with a captcha token. Infrai sits behind one key and a small REST client, and the same request envelope is reused across calls.
 
 ## Run the service
 
@@ -23,28 +23,28 @@ curl -X POST localhost:8080/otp/login -H 'content-type: application/json' \
   -d '{"phone":"+15551234567","code":"123456","captcha_token":"token","ip":"203.0.113.8"}'
 ```
 
-The response returns session data alongside an audit event carrying the `authenticated` outcome. If the captcha fails, we return a 4xx to the caller. Transport failures get surfaced in their own error path so we can page on the right thing.
+The response includes the returned session data plus an audit event with `authenticated` outcome. If captcha validation is rejected, the caller gets a 4xx. If transport breaks, that is surfaced separately so you can tell policy failures from delivery failures.
 
 ## Migration cutover
 
 1. Provision `INFRAI_API_KEY` in the service environment and run the focused test.
-2. Route a small cohort to `/otp/send` and `/otp/login`. Keep the incumbent sender wired up for an immediate rollback if delivery rates drop.
-3. Compare delivery, verification, and audit records over one business day.
-4. Shift all traffic after the compliance review passes. If you need to roll back, route both paths to the incumbent and preserve the audit event format so downstream parsers do not break.
+2. Route a small cohort to `/otp/send` and `/otp/login`; keep the incumbent sender available for rollback.
+3. Compare delivery, verification, and audit records for one business day.
+4. Move the rest of traffic after the compliance review. To roll back, point the two paths back to the incumbent and keep the audit event format unchanged.
 
 ## Verify the business rule
 
-The table-free unit test sends a captcha rejection. It asserts that OTP verification is never called and the audit outcome resolves to `captcha_rejected`:
+The table-free unit test forces a captcha rejection and asserts that OTP verification is never called and the audit outcome is `captcha_rejected`:
 
 ```sh
 go test ./...
 ```
 
-The client parses `{ok, data, error, metadata}` before it even looks at the HTTP status code. It sends explicit POST methods, uses `Authorization: Bearer <key>`, and retries HTTP 429 responses with an exponential delay and `Retry-After` when supplied.
+The client parses `{ok, data, error, metadata}` before it looks at HTTP status. It sends explicit POST methods, uses `Authorization: Bearer <key>`, and retries HTTP 429 with exponential delay and `Retry-After` when supplied.
 
 ## Wiring it up for real: Fintech Phone OTP Go
 
-The snippet above stays copy-paste simple for local testing. Before you ship this to production, there are a few required steps. The details below apply to Fintech Phone OTP Go.
+The snippet above is meant to stay copy-paste simple. Before shipping, there are a few **required** steps. The notes below apply to Fintech Phone OTP Go.
 
 **Account & key**
 
